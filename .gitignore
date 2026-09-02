@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Runtime output this project would generate locally -- never meant to be
+# committed here (large, per-machine, regenerable from the pipeline).
+gg_outputs_fixedsize/
+*.log
