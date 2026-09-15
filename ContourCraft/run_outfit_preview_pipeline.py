@@ -68,6 +68,7 @@ import glob
 import json
 import os
 import pickle
+import shutil
 import subprocess
 from pathlib import Path
 import time
@@ -387,6 +388,17 @@ def simulate(args, fixedsize_dicts_dir: Path, motion_path: Path, n_steps: int, o
          "--n-steps", str(n_steps),
          "--output-trajectory", str(output_trajectory),
          "--skip-safecheck-collision-count"]
+    # Passthrough for simulate_recovered_outfit.py's own --body-collision-radius
+    # (EXPERIMENTAL, see that script's help text) -- None means "don't pass
+    # it, use the checkpoint's trained 3e-2m value", same as this script's
+    # own prior default behavior. Not a fix for the "garment clips through
+    # the body when it's much too long for the target's legs" limitation
+    # (that needs real floor collision, out of scope) -- this only widens the
+    # garment-vs-body clearance buffer, which may reduce how BADLY it clips
+    # for a large mismatch, being tried as a cheap experiment before
+    # investing in an actual garment-length-trimming preprocessing step.
+    if args.body_collision_radius is not None:
+        sim_cmd += ["--body-collision-radius", str(args.body_collision_radius)]
     run(sim_cmd)
 
 
@@ -438,6 +450,14 @@ def main():
     parser.add_argument("--outfit-name", default=None, help="Default: garment names joined with '+'.")
     parser.add_argument("--height", type=float, required=True, help="target height in meters")
     parser.add_argument("--weight", type=float, required=True, help="target weight in kg")
+    parser.add_argument("--precomputed-betas", type=Path, default=None,
+        help="Skip fit_body_from_measurements_fast.py's ~20s body-shape optimization and reuse "
+             "an already-fit betas.pkl instead (same dict format that script writes -- needs a "
+             "'betas' key). --height/--weight are still required above (used for outfit-name/log "
+             "purposes elsewhere) but no longer drive the actual body shape when this is set -- "
+             "only --motion gets patched with these betas. Used by preview_server.py's two-stage "
+             "flow: a visitor fits their body once on a separate page, then reuses it across "
+             "however many outfits/motions they try.")
     parser.add_argument("--motion", type=Path, required=True, help="CMU/AMASS SMPL-X motion .npz")
     parser.add_argument("--gender", default="female")
     parser.add_argument("--source-genders", nargs="+", default=None,
@@ -476,6 +496,10 @@ def main():
         help="Subset of --garment-names to run the fit-aware waistband check for at rebind "
              "time -- see run_garment_pipeline_fixedsize_README.md's 褲頭要不要 pin 分節.")
     parser.add_argument("--fit-ratio-threshold", type=float, default=1.2)
+    parser.add_argument("--body-collision-radius", type=float, default=None,
+        help="Passthrough to simulate_recovered_outfit.py's own EXPERIMENTAL "
+             "--body-collision-radius (see that script's --help for the full "
+             "caveats). Default None = use the checkpoint's trained value.")
     parser.add_argument("--frame", type=int, default=0)
     parser.add_argument("--relax-steps", type=int, default=30)
     parser.add_argument("--untangle-epochs", type=int, default=2)
@@ -548,18 +572,37 @@ def run_pipeline(args, run_dir: Path, staging_dir: Path, source_trajectory_overr
     write_status(run_dir, "untangling", message="Untangling outfit (usually cached, near-instant)")
     ensure_outfit(args, staging_dir, staging_dir / args.outfit_name)
 
-    write_status(run_dir, "fitting_body", message=f"Fitting body to {args.height}m / {args.weight}kg")
     betas_path = run_dir / "betas.pkl"
     motion_path = run_dir / "motion_with_body.npz"
-    run([args.ccraft_python, str(SCRIPT_DIR / "fit_body_from_measurements_fast.py"),
-         "--body-model-root", str(args.body_model_root),
-         "--gender", args.gender,
-         "--height", str(args.height),
-         "--weight", str(args.weight),
-         "--output-betas", str(betas_path),
-         "--input-sequence", str(args.motion),
-         "--output-sequence", str(motion_path),
-         "--patience", "50"])
+    if args.precomputed_betas is not None:
+        # Reuse an already-fit body (see --precomputed-betas' own help) --
+        # skip fit_betas()'s ~20s optimization loop entirely, just do the
+        # same patch fit_body_from_measurements_fast.py's patch_sequence_
+        # betas() would (load --motion, overwrite its betas field, save) --
+        # duplicated inline rather than importing that script as a module,
+        # same "small helpers get duplicated, not imported" convention this
+        # file already follows elsewhere (ensure_garment/ensure_outfit).
+        write_status(run_dir, "fitting_body", message="Reusing your saved body")
+        shutil.copyfile(args.precomputed_betas, betas_path)
+        with betas_path.open("rb") as f:
+            betas = pickle.load(f)["betas"]
+        seq = dict(np.load(args.motion, allow_pickle=True))
+        original = np.asarray(seq["betas"])
+        padded = np.zeros_like(original) if original.ndim == 1 else np.zeros(original.shape[-1])
+        padded[:10] = betas
+        seq["betas"] = padded
+        np.savez(motion_path, **seq)
+    else:
+        write_status(run_dir, "fitting_body", message=f"Fitting body to {args.height}m / {args.weight}kg")
+        run([args.ccraft_python, str(SCRIPT_DIR / "fit_body_from_measurements_fast.py"),
+             "--body-model-root", str(args.body_model_root),
+             "--gender", args.gender,
+             "--height", str(args.height),
+             "--weight", str(args.weight),
+             "--output-betas", str(betas_path),
+             "--input-sequence", str(args.motion),
+             "--output-sequence", str(motion_path),
+             "--patience", "50"])
 
     write_status(run_dir, "rebinding", message="Fitting garments to your body")
     fixedsize_dicts_dir = run_dir / "fixedsize_dicts"

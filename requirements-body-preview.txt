@@ -1,0 +1,19 @@
+# 只有「身體預覽」功能需要這份額外清單，其餘功能（看頁面、縮圖、正常生成服裝預覽）
+# 都不需要，見 requirements.txt。
+#
+# render_body_preview.py（由 preview_server.py 的 /fit_body 路由以 subprocess 呼叫）
+# 需要以下套件。這份清單只列出「不確定組員的 ccraft 環境本來就有」的部分：
+#
+# - open3d：真正新增的相依，官方 ContourCraft 本身不需要這個套件，組員的
+#   ccraft 環境很可能沒有，需要另外安裝
+#
+# 以下三個套件沒有列在這裡，因為它們本來就是跑 ContourCraft 模擬的基本配備，
+# 只要組員的 ccraft 環境能跑 /generate，幾乎可以肯定已經有：
+# - torch（本機驗證版本：2.11.0+cu128——注意 torch 的 CUDA 版本要對應你自己的
+#   顯卡/驅動，不要盲目照這個版本號重灌，可能會把組員原本裝好、對應正確CUDA
+#   版本的 torch 弄壞。如果組員的 ccraft 環境真的完全沒有 torch，那應該是環境
+#   本身有更根本的問題，不是這份清單該處理的範圍）
+# - scipy（本機驗證版本：1.15.3）
+# - Pillow（本機驗證版本：12.2.0）
+
+open3d==0.18.0

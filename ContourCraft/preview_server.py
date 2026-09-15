@@ -47,6 +47,7 @@ How it works (matches run_outfit_preview_pipeline.py's own docstring):
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -114,6 +115,18 @@ app = Flask(__name__)
 RUNS = {}  # run_id -> {"dir": Path, "outfit_name": str}
 GARMENTS_BY_NAME = {g["name"]: g for g in GARMENTS}
 
+# Two-stage flow: a visitor fits their body ONCE (page 1), then tries however
+# many outfits/motions against it (page 2) without re-entering height/weight/
+# gender or re-paying fit_body_from_measurements_fast.py's ~20s optimization
+# loop each time. In-memory only (resets on server restart), same style as
+# RUNS above -- this is a single-visitor-at-a-time local demo, no session/
+# cookie machinery needed. Deliberately NOT a cache keyed by (gender, height,
+# weight) reusable across different visits -- two people matching on exact
+# height+weight+gender is unlikely enough that it isn't worth building; this
+# is just "the one body the current visitor is using right now".
+CURRENT_BODY = None  # None, or {"betas_path": Path, "gender", "height", "weight"}
+CURRENT_BODY_DIR = OUTPUT_ROOT / "web_current_body"
+
 
 def outfit_name_for(garment_names, gender):
     # run_outfit_preview_pipeline.py's untangle cache (Stage 3,
@@ -167,7 +180,34 @@ INDEX_HTML = """<!doctype html>
   }
   #tt-prev { left: 6px; } #tt-next { right: 6px; }
   #tip { font-size: 13px; color: #888; margin-top: 16px; min-height: 1.4em; font-style: italic; }
+  #page-body { max-width: 420px; margin: 0 auto; text-align: center; }
+  #page-body p.intro { color: #666; font-size: 14px; text-align: left; }
+  #body-preview-area { margin-top: 20px; }
+  #body-preview-img { max-width: 260px; border-radius: 8px; border: 1px solid #ddd; }
+  #body-status-msg { margin-top: 12px; font-size: 14px; color: #666; }
+  #change-body-btn { background: none; border: 1px solid #ccc; margin-top: 8px; }
 </style>
+<div id="page-body">
+  <h2>穿搭預覽 Demo</h2>
+  <p class="intro">先填一次身體資料，等一下不管試穿幾套衣服都會用同一個身體，不用每套都重填。</p>
+  <form id="body-form">
+    <label>性別</label>
+    <select name="gender">
+      {% for g in genders %}<option value="{{g.value}}">{{g.label}}</option>{% endfor %}
+    </select>
+    <label>身高 (m)</label>
+    <input type="number" step="0.01" name="height" value="1.70" min="1.0" max="2.2" required>
+    <label>體重 (kg)</label>
+    <input type="number" step="0.1" name="weight" value="58" min="25" max="180" required>
+    <button type="submit">建立我的身體模型</button>
+  </form>
+  <div id="body-status-msg"></div>
+  <div id="body-preview-area" hidden>
+    <img id="body-preview-img">
+    <div><button type="button" id="body-next-btn">下一步：選衣服</button></div>
+  </div>
+</div>
+<div id="page-outfit" hidden>
 <form id="f" class="layout">
   <div class="col-garments">
     <label>上身</label>
@@ -190,26 +230,79 @@ INDEX_HTML = """<!doctype html>
     </div>
   </div>
   <div class="col-params">
-    <label>性別</label>
-    <select name="gender">
-      {% for g in genders %}<option value="{{g.value}}">{{g.label}}</option>{% endfor %}
-    </select>
-    <label>身高 (m)</label>
-    <input type="number" step="0.01" name="height" value="1.70" required>
-    <label>體重 (kg)</label>
-    <input type="number" step="0.1" name="weight" value="58" required>
     <label>動作</label>
     <select name="motion">
       {% for i, m in enumerate(motions) %}<option value="{{i}}">{{m.label}}</option>{% endfor %}
     </select>
     <button type="submit">生成</button>
+    <button type="button" id="change-body-btn">換人（重新填身體資料）</button>
   </div>
   <div class="col-result"><h2>穿搭預覽 Demo</h2><div id="result"></div></div>
 </form>
+</div>
 <script>
 const form = document.getElementById('f');
 const result = document.getElementById('result');
 let poll = null;
+
+const pageBody = document.getElementById('page-body');
+const pageOutfit = document.getElementById('page-outfit');
+
+function showPage(name) {
+  pageBody.hidden = name !== 'body';
+  pageOutfit.hidden = name !== 'outfit';
+}
+
+// Polled once on page load (not just assumed client-side) so a mid-flow
+// browser refresh lands on whichever page actually matches server state,
+// e.g. after a server restart cleared CURRENT_BODY.
+async function refreshBodyStatus() {
+  const resp = await fetch('/body_status', { cache: 'no-store' });
+  const s = await resp.json();
+  showPage(s.has_body ? 'outfit' : 'body');
+}
+refreshBodyStatus();
+
+const bodyForm = document.getElementById('body-form');
+const bodyStatusMsg = document.getElementById('body-status-msg');
+const bodyPreviewArea = document.getElementById('body-preview-area');
+const bodyPreviewImg = document.getElementById('body-preview-img');
+
+bodyForm.onsubmit = async (e) => {
+  e.preventDefault();
+  // Disable the button for the whole ~20s request -- without this a
+  // double-click (or a submit fired while still mid-edit of a field) could
+  // send two overlapping /fit_body calls; the server now rejects the second
+  // one (409) either way, but this avoids the confusing 409 entirely and is
+  // the more important half of the fix (a real 152cm/5kg body was produced
+  // this way once, before the server-side guard existed).
+  const submitBtn = bodyForm.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  bodyPreviewArea.hidden = true;
+  bodyStatusMsg.textContent = '建立身體模型中，約需 20 秒...';
+  try {
+    const body = new URLSearchParams(new FormData(bodyForm));
+    const resp = await fetch('/fit_body', { method: 'POST', body });
+    if (!resp.ok) { bodyStatusMsg.textContent = '失敗：' + await resp.text(); return; }
+    const { preview_image } = await resp.json();
+    bodyStatusMsg.textContent = '';
+    bodyPreviewImg.src = preview_image;
+    bodyPreviewArea.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+  }
+};
+
+document.getElementById('body-next-btn').onclick = () => showPage('outfit');
+
+document.getElementById('change-body-btn').onclick = async () => {
+  if (poll) clearInterval(poll);
+  await fetch('/discard_body', { method: 'POST' });
+  bodyPreviewArea.hidden = true;
+  bodyStatusMsg.textContent = '';
+  result.innerHTML = '';
+  showPage('body');
+};
 
 // Image cards (upper/lower, each its own radio group): clicking anywhere in
 // a <label class="combo-card"> already checks its radio natively (no JS
@@ -508,8 +601,176 @@ def is_run_active(info) -> bool:
     return phase not in ("done", "error")
 
 
+FIT_BODY_IN_PROGRESS = False  # see fit_body()'s own comment -- guards against a double-submit race
+
+
+def any_job_active() -> bool:
+    """True if a /generate run OR a /fit_body call is still mid-flight -- both
+    use the GPU (fit_body_from_measurements_fast.py runs on it too), same
+    one-GPU-at-a-time discipline as is_run_active's own docstring, so every
+    GPU-touching endpoint shares this single check."""
+    return FIT_BODY_IN_PROGRESS or any(is_run_active(info) for info in RUNS.values())
+
+
+# Reasonable adult human bounds -- catches typos (a missing digit, e.g. "5"
+# instead of "50") before they reach fit_betas(). Without this, an
+# implausible height/weight combination (e.g. 152cm/5kg, hit for real once)
+# still "succeeds" numerically -- the optimizer just pushes betas far outside
+# the range real bodies occupy to satisfy both loss terms, producing a
+# grotesquely gaunt shape, not an error. Matches the <input min/max> in
+# INDEX_HTML; enforced here too since the HTML constraint alone doesn't
+# protect a direct API call.
+MIN_HEIGHT_M, MAX_HEIGHT_M = 1.0, 2.2
+MIN_WEIGHT_KG, MAX_WEIGHT_KG = 25.0, 180.0
+
+
+@app.route("/fit_body", methods=["POST"])
+def fit_body():
+    global CURRENT_BODY, FIT_BODY_IN_PROGRESS
+    if any_job_active():
+        return ("目前已經有一個生成正在進行中，請等它完成後再試一次。"
+                "這台機器只有一顆 GPU，同時跑兩個會讓兩邊都變超慢。", 409)
+
+    gender = request.form.get("gender", "female")
+    if gender not in {g["value"] for g in GENDERS}:
+        return (f"不支援的性別選項：{gender}", 400)
+    try:
+        height = float(request.form["height"])
+        weight = float(request.form["weight"])
+    except (KeyError, ValueError):
+        return ("身高/體重格式錯誤", 400)
+    if not (MIN_HEIGHT_M <= height <= MAX_HEIGHT_M):
+        return (f"身高需介於 {MIN_HEIGHT_M}m 到 {MAX_HEIGHT_M}m 之間", 400)
+    if not (MIN_WEIGHT_KG <= weight <= MAX_WEIGHT_KG):
+        return (f"體重需介於 {MIN_WEIGHT_KG}kg 到 {MAX_WEIGHT_KG}kg 之間", 400)
+
+    # Marks this GPU-touching step busy for any_job_active() -- without this,
+    # two /fit_body submits racing (e.g. a double-click, or a submit that
+    # fires while the user is still mid-edit of the weight field) could run
+    # concurrently: both would fit_betas() on the GPU at once (violates the
+    # one-job-at-a-time rule everywhere else in this project), and both would
+    # rmtree/rewrite CURRENT_BODY_DIR at the same time, so whichever finishes
+    # last silently wins with no error -- this is almost certainly what
+    # produced one real observed case (a 152cm/5kg body, i.e. an impossible
+    # weight nobody would deliberately submit).
+    # Always start from a clean slate rather than requiring the frontend to
+    # call /discard_body first -- fit_body_from_measurements_fast.py refuses
+    # to overwrite an existing --output-betas path anyway, and "start fresh"
+    # is exactly what submitting this form again should mean.
+    shutil.rmtree(CURRENT_BODY_DIR, ignore_errors=True)
+    CURRENT_BODY_DIR.mkdir(parents=True, exist_ok=True)
+    betas_path = CURRENT_BODY_DIR / "betas.pkl"
+    preview_path = CURRENT_BODY_DIR / "body_preview.png"
+
+    # FIT_BODY_IN_PROGRESS guards against a double-submit race: two /fit_body
+    # calls overlapping (a double-click, or submitting while still mid-edit
+    # of a field) would otherwise both fit_betas() on the GPU at once
+    # (violates the one-job-at-a-time rule everywhere else in this project)
+    # and both rmtree/rewrite CURRENT_BODY_DIR at the same time, so whichever
+    # finishes last silently wins with no error -- this is almost certainly
+    # what produced one real observed case (a 152cm/5kg body, i.e. an
+    # impossible weight nobody would deliberately submit).
+    FIT_BODY_IN_PROGRESS = True
+    try:
+        subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "fit_body_from_measurements_fast.py"),
+             "--body-model-root", str(SCRIPT_DIR / "ccraft_data" / "aux_data" / "body_models"),
+             "--gender", gender, "--height", str(height), "--weight", str(weight),
+             "--output-betas", str(betas_path), "--patience", "50"],
+            cwd=str(SCRIPT_DIR), check=True, capture_output=True, text=True)
+        subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "render_body_preview.py"),
+             "--betas-path", str(betas_path), "--output-image", str(preview_path)],
+            cwd=str(SCRIPT_DIR), check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        shutil.rmtree(CURRENT_BODY_DIR, ignore_errors=True)
+        return (f"身體資料處理失敗：{exc.stderr[-2000:] if exc.stderr else exc}", 500)
+    finally:
+        FIT_BODY_IN_PROGRESS = False
+
+    # Synchronous on purpose -- fit_betas' optimization loop is short (~20s)
+    # and this is a one-shot step, not worth building a status.json/polling
+    # setup like /generate's for. The browser just shows a spinner for the
+    # duration of this one request.
+    CURRENT_BODY = {"betas_path": betas_path, "gender": gender, "height": height, "weight": weight}
+    return jsonify({"preview_image": f"/body_preview.png?t={int(time.time() * 1000)}"})
+
+
+@app.route("/discard_body", methods=["POST"])
+def discard_body():
+    """"換人" -- discard the current body so /body_status sends the visitor
+    back to the body-data page. Actually deletes betas.pkl/body_preview.png
+    from disk immediately (not just clearing the in-memory pointer): matches
+    what pressing this button should mean, and /fit_body would need to do
+    this anyway on the next submit (see its own comment)."""
+    global CURRENT_BODY
+    if any_job_active():
+        return ("目前已經有一個生成正在進行中，請等它完成後再試一次。", 409)
+    CURRENT_BODY = None
+    shutil.rmtree(CURRENT_BODY_DIR, ignore_errors=True)
+    return jsonify({"ok": True})
+
+
+@app.route("/body_status")
+def body_status():
+    # Polled once on page load so a mid-flow browser refresh shows the right
+    # page (body form vs. outfit picker) instead of assuming state client-side.
+    if CURRENT_BODY is None:
+        return jsonify({"has_body": False})
+    return jsonify({"has_body": True, "preview_image": "/body_preview.png",
+                     "gender": CURRENT_BODY["gender"], "height": CURRENT_BODY["height"],
+                     "weight": CURRENT_BODY["weight"]})
+
+
+@app.route("/body_preview.png")
+def body_preview_image():
+    if CURRENT_BODY is None:
+        abort(404)
+    return send_from_directory(CURRENT_BODY_DIR, "body_preview.png")
+
+
+def cleanup_old_web_runs(keep_run_dir):
+    """Delete every previous web-generated run folder except the one just
+    started. This demo has no history/gallery feature -- once a new /generate
+    request is accepted, nobody will look at an old run's files again, and
+    they otherwise just accumulate disk space (this project hit ~9.8GB once
+    before a manual cleanup).
+
+    Scoped tightly to run-name prefix "web_" -- the prefix this route itself
+    always uses (see run_name below) -- so this only ever touches runs this
+    demo generated for a visitor. It never touches: CLI-invoked runs_preview
+    folders (this project's own manual testing/comparison runs use other
+    run-names, e.g. "quality_check_*"), the separate runs/ directory tree
+    from run_multigarment_pipeline_fixedsize.py, or any cache directory
+    (_staging_garment_dicts/, per-garment dicts) -- none of those live under
+    runs_preview/web_*. Safe to call unconditionally: by the time /generate
+    reaches this point, is_run_active()'s check above has already confirmed
+    no run is mid-flight, so nothing still being polled/served gets deleted
+    out from under a browser tab.
+
+    ALSO drops the matching RUNS entry, not just the directory -- found the
+    hard way (a live 409 that never cleared): is_run_active() treats a
+    missing status.json as "just launched, not written its first status yet"
+    (true for a genuinely brand-new run), but a deleted OLD run's directory
+    also has no status.json, and RUNS is never otherwise pruned -- so any
+    run whose folder got cleaned up here would look permanently "active"
+    forever after, wrongly 409-blocking every future /generate and
+    /fit_body call for the rest of this server process's life. Deleting the
+    RUNS entry alongside the directory keeps that "missing = active" rule
+    true only for actually-fresh runs.
+    """
+    for run_dir in OUTPUT_ROOT.glob("outfits/*/runs_preview/web_*"):
+        if run_dir.is_dir() and run_dir != keep_run_dir:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            log_path = run_dir.parent / f"{run_dir.name}.log"
+            log_path.unlink(missing_ok=True)
+            RUNS.pop(run_dir.name, None)
+
+
 @app.route("/generate", methods=["POST"])
 def generate():
+    if CURRENT_BODY is None:
+        return ("請先回第一頁填身體資料", 400)
     active_runs = [rid for rid, info in RUNS.items() if is_run_active(info)]
     if active_runs:
         return (f"目前已經有一個生成正在進行中（{active_runs[0]}），請等它完成後再試一次。"
@@ -520,11 +781,11 @@ def generate():
     if upper is None or lower is None:
         return ("請選擇上身跟下身各一件", 400)
     motion = MOTIONS[int(request.form["motion"])]
-    height = float(request.form["height"])
-    weight = float(request.form["weight"])
-    gender = request.form.get("gender", "female")
-    if gender not in {g["value"] for g in GENDERS}:
-        return (f"不支援的性別選項：{gender}", 400)
+    # Body no longer comes from this form -- height/weight/gender were fixed
+    # back on page 1 when /fit_body ran (see CURRENT_BODY's own comment).
+    gender = CURRENT_BODY["gender"]
+    height = CURRENT_BODY["height"]
+    weight = CURRENT_BODY["weight"]
 
     # Innermost-to-outermost order, same convention this project's
     # multi-garment scripts have always used (lower first, upper second) --
@@ -537,12 +798,19 @@ def generate():
     run_name = f"web_{int(time.time() * 1000)}"
     run_dir = OUTPUT_ROOT / "outfits" / outfit_name / "runs_preview" / run_name
 
+    # No history/gallery feature -- a web-generated run is never looked at
+    # again once a new one starts, so clear all of them out before launching
+    # this one (see cleanup_old_web_runs' own docstring for exactly what this
+    # does and doesn't touch).
+    cleanup_old_web_runs(run_dir)
+
     cmd = [sys.executable, str(SCRIPT_DIR / "run_outfit_preview_pipeline.py"),
            "--garment-names", *garment_names,
            "--gender", gender,
            "--source-genders", *source_genders,
            "--outfit-name", outfit_name,
            "--height", str(height), "--weight", str(weight),
+           "--precomputed-betas", str(CURRENT_BODY["betas_path"]),
            "--motion", motion["path"],
            "--run-name", run_name,
            # Whichever garment is in the "lower" slot gets the waistband pin

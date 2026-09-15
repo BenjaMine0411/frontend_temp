@@ -44,6 +44,19 @@ python preview_server.py
 
 開啟 http://127.0.0.1:5000 ，應可看到服裝選單與縮圖。
 
+## 擬合身體（第一頁，需額外安裝）
+
+網頁第一頁的「擬合身體」需要 `torch` + `open3d`。**注意**：這個功能是用啟動 `preview_server.py`
+本身的那個 python 去執行的，不是另外指定的環境，所以不能用上面「安裝（不需GPU）」那個輕量環境
+啟動——要用你本來就有的 `ccraft` conda 環境啟動，並額外安裝：
+
+```bash
+/目標路徑/conda/envs/ccraft/bin/pip install -r requirements-body-preview.txt
+/目標路徑/conda/envs/ccraft/bin/python preview_server.py
+```
+
+（`torch`/`scipy`/`Pillow` 通常你的 `ccraft` 環境已經有，這份清單實際上只會新裝 `open3d`。）
+
 ## 執行生成請求（需 GPU + conda 環境）
 
 啟動時需指定具備 ContourCraft/Gaussian-Garments 相依的 conda 環境：

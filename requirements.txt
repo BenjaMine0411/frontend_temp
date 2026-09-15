@@ -1,6 +1,12 @@
-# Pinned to the exact versions this was tested against (pip freeze from a
-# clean venv). flask is the only direct dependency; the rest are its own
-# transitive dependencies, pinned here for reproducible installs.
+# This is the LIGHTWEIGHT install: enough to start preview_server.py and
+# view the page/thumbnails, no GPU needed. Pinned to the exact versions
+# this was tested against (pip freeze from a clean venv). flask is the only
+# direct dependency; the rest are its own transitive dependencies, pinned
+# here for reproducible installs.
+#
+# The "身體預覽" (body preview) feature needs more (open3d + what your ccraft
+# env almost certainly already has) -- see requirements-body-preview.txt.
+# Not needed just to view pages or generate outfit previews.
 blinker==1.9.0
 click==8.5.0
 Flask==3.1.3

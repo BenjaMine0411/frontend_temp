@@ -22,9 +22,14 @@
 
 ## 0. 概述
 
-本機、非正式環境的服裝模擬預覽 Demo：使用者於網頁選擇上身服裝、下身服裝（各自獨立選擇）、
-性別、身高體重、動作，系統透過 Gaussian-Garments + ContourCraft 的模擬/算圖 pipeline 產生
-一段站立轉台預覽（約1分鐘），接著產生完整動畫（約4-6分鐘）。
+本機、非正式環境的服裝模擬預覽 Demo，分兩頁：
+
+- **第一頁（身體資料）**：使用者輸入性別、身高、體重，系統擬合一次 SMPL-X 身體（約15-25秒），
+  快取起來並顯示灰階假人預覽圖。
+- **第二頁（服裝與動作）**：重複使用第一頁快取好的身體，選擇上身服裝、下身服裝（各自獨立選擇）、
+  動作，系統透過 Gaussian-Garments + ContourCraft 的模擬/算圖 pipeline 產生一段站立轉台預覽
+  （約1分鐘），接著產生完整動畫（約4-6分鐘）。可以重複回到第二頁、用同一個身體換穿多套服裝，
+  不用重新擬合身體；要換身高體重需按「換人」按鈕回到第一頁重新輸入。
 
 前端本體為 **`ContourCraft/preview_server.py`**，單一 Flask 檔案，頁面 HTML/JS 內嵌於檔案內的
 `INDEX_HTML` 字串，無 npm、無前端 build 工具鏈。
@@ -36,12 +41,16 @@
 
 ## 1. 目前功能（四分類）
 
-前端共 6 個 Flask 路由：
+前端共 10 個 Flask 路由：
 
 | 路由 / 功能 | 分類 | 說明 |
 |---|---|---|
-| `/`（首頁：服裝選單、表單） | 已完整可用功能 | 純靜態頁面，不需後端即可開啟 |
+| `/`（首頁：依 `CURRENT_BODY` 是否存在顯示第一頁或第二頁） | 已完整可用功能 | 純靜態頁面，不需後端即可開啟 |
 | `/garment_thumbnail/<name>`（服裝縮圖） | 已完整可用功能 | 讀取 `catalog_thumbnails/` 內預先產生的縮圖檔 |
+| `/discard_body`（POST，「換人」按鈕） | 已完整可用功能 | 清除記憶體中的 `CURRENT_BODY` 並刪除快取目錄，純記憶體/檔案操作，不需 GPU |
+| `/body_status`（GET，查詢目前快取的身體） | 已完整可用功能 | 讀取記憶體中的 `CURRENT_BODY`，不需 GPU |
+| `/body_preview.png`（GET，身體預覽圖） | 已完整可用功能 | 讀取已快取的圖檔，不需 GPU；需先呼叫過 `/fit_body` 才有內容 |
+| `/fit_body`（POST，擬合身體） | 必須依賴後端 | `subprocess` 呼叫 `render_body_preview.py`，需 `torch`/`open3d`（見第6節） |
 | `/generate`（POST，生成請求） | 必須依賴後端 | `subprocess` 呼叫 `run_outfit_preview_pipeline.py`，需 GPU、conda 環境、模型 checkpoint、快取資料 |
 | `/status/<run_id>`（進度輪詢） | 必須依賴後端 | 讀取後端 pipeline 寫出的 `status.json` |
 | `/latest_frame/<run_id>`（執行中即時畫面） | 必須依賴後端 | 需有執行中的模擬/算圖工作 |
@@ -63,10 +72,16 @@
 
 ## 2. 需要的輸入格式
 
-- 上身服裝、下身服裝：各自從 `GARMENTS` 目錄選擇一件（任意組合，命名/快取機制見第7-8節）
+**第一頁（`/fit_body`）**：
 - 性別：`female`/`male`（`GENDERS` 目錄）
-- 身高（公尺）、體重（公斤）
+- 身高（公尺，1.0-2.2 範圍內）、體重（公斤，25-180 範圍內）——範圍限制同時做在瀏覽器端
+  （HTML `min`/`max`）與伺服器端，避免不合理數值讓 SMPL-X 擬合出失真的身體
+
+**第二頁（`/generate`）**，需已有 `/fit_body` 快取好的身體（否則回傳 400）：
+- 上身服裝、下身服裝：各自從 `GARMENTS` 目錄選擇一件（任意組合，命名/快取機制見第7-8節）
 - 動作：從 `MOTIONS` 目錄選擇一段 CMU 動作片段（`.npz`）
+
+`/generate` 不再直接接受性別/身高/體重欄位，一律從快取的 `CURRENT_BODY` 讀取。
 
 ---
 
@@ -115,6 +130,15 @@ http://127.0.0.1:5000
 
 **瀏覽頁面、縮圖、已生成範例**：現代瀏覽器即可。不需 GPU、不需 conda 環境、不需第7節的資料——
 `preview_server.py` 僅相依 `flask`。
+
+**執行 `/fit_body`（擬合身體）**：需要 `torch`、`open3d`（見 `requirements-body-preview.txt`）。
+**重要**：`preview_server.py` 是用 `sys.executable`（啟動它自己的那個 python）去呼叫
+`render_body_preview.py`，不像 `/generate` 用另外指定的 `--ccraft-python` 路徑——這代表如果用
+第4節那個只裝 `flask` 的輕量環境啟動 `preview_server.py`，頁面/縮圖仍然正常，但按下擬合身體
+會失敗（找不到 `torch`/`open3d`）。要讓這個功能正常，**啟動 `preview_server.py` 本身的 python
+環境就要有 `flask` + `torch` + `open3d`**，例如你的 `ccraft` conda 環境（額外安裝
+`requirements-body-preview.txt`，`torch`/`scipy`/`Pillow` 通常已經隨 ContourCraft 一起裝好，
+真正需要另外裝的只有 `open3d`）。
 
 **執行生成請求**，需要以下全部項目：
 
@@ -172,6 +196,13 @@ gg_outputs_fixedsize/outfits/<outfit-name>/runs_preview/<run-id>/
 
 ## 8. API 或格式相依關係
 
+- **身體快取（`CURRENT_BODY`）**：`preview_server.py` 內的模組層級全域變數，記錄目前擬合好的
+  身體（`{betas_path, gender, height, weight}`），對應檔案存於 `gg_outputs_fixedsize/
+  web_current_body/`。伺服器重啟會清空（純記憶體，非持久化跨 session 快取——同一時間只服務
+  一人，不需要更複雜的快取機制）。`/generate` 直接把 `CURRENT_BODY` 的 betas 路徑傳給
+  `run_outfit_preview_pipeline.py` 的 `--precomputed-betas` 參數，跳過該腳本原本每次都要重新
+  跑的身體擬合步驟（原本約20秒，命中快取後約4秒進入模擬階段）。
+
 - **`GARMENTS` 目錄結構**（`preview_server.py`）：`{"name", "label", "slot", "source_gender", "thumbnail"}`。
   `slot` 為 `"upper"`/`"lower"`；`source_gender` 為該服裝於 GG 捕捉/還原時的性別，與使用者選擇的
   目標性別為獨立參數，分別傳入 pipeline。
@@ -196,8 +227,9 @@ gg_outputs_fixedsize/outfits/<outfit-name>/runs_preview/<run-id>/
 
 | 檔案 | 用途 |
 |---|---|
-| `preview_server.py` | 前端本體，Flask app。定義 `GARMENTS`/`MOTIONS`/`GENDERS` 目錄，處理第1節的 6 個路由，以 `subprocess` 依序呼叫下方各腳本組成完整 pipeline |
-| `run_outfit_preview_pipeline.py` | 兩階段 pipeline 協調者，前端 `/generate` 直接呼叫此腳本。依序呼叫下方所有前處理/模擬/算圖腳本，過程中即時寫入 `status.json` 供前端輪詢，最終輸出到 `runs_preview/<run-id>/`（見第7節） |
+| `preview_server.py` | 前端本體，Flask app。定義 `GARMENTS`/`MOTIONS`/`GENDERS` 目錄，處理第1節的 10 個路由，以 `subprocess` 依序呼叫下方各腳本組成完整 pipeline；維護 `CURRENT_BODY` 身體快取（見第8節） |
+| `render_body_preview.py` | 身體預覽產生工具，由 `/fit_body` 以 `sys.executable` 呼叫。讀取 `betas.pkl`，用 SMPL-X 產生灰階站立假人，以 `open3d.t.geometry.RaycastingScene`（CPU 光線追蹤，非 GPU 算圖）算出單張預覽圖，輸出到 `CURRENT_BODY` 對應目錄的 `body_preview.png` |
+| `run_outfit_preview_pipeline.py` | 兩階段 pipeline 協調者，前端 `/generate` 直接呼叫此腳本。依序呼叫下方所有前處理/模擬/算圖腳本，過程中即時寫入 `status.json` 供前端輪詢，最終輸出到 `runs_preview/<run-id>/`（見第7節）。支援 `--precomputed-betas`，有給的話跳過重新擬合身體（見第8節） |
 | `recover_resize_garment_bootstrap.py` | 通用 checkpoint 路徑的服裝匯入：從 GG 已模擬的服裝軌跡 `.pkl` 切出一幀，還原成 `garment_dict.pkl`，寫入 `recovery_metadata`（`source_trajectory`/`source_frame`） |
 | `pin_garment_waistband.py` | 標記下身服裝腰部邊界頂點，避免後續物理模擬時褲/裙從腰部滑落。見 [FIXED_SIZE.md](FIXED_SIZE.md#6-相關檔案) |
 | `inspect_garment_dict.py` | 服裝字典檢查工具，跑模擬前的健檢。見 [FIXED_SIZE.md](FIXED_SIZE.md) 第5節 |
