@@ -7,7 +7,7 @@
 
 ## 概述
 
-本機服裝模擬預覽網頁的前端部分。功能、架構、資料流程說明見 **[HANDOFF.md](HANDOFF.md)**。
+本機服裝模擬預覽網頁的前端部分。功能、架構、資料流程說明見 **[HANDOFF.md](HANDOFF.md)**；服裝尺寸固定機制（fixed-size）的完整說明見 **[FIXED_SIZE.md](FIXED_SIZE.md)**。
 本文件僅說明安裝與啟動方式。
 
 ## 前提

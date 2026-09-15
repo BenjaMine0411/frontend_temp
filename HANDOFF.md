@@ -199,10 +199,11 @@ gg_outputs_fixedsize/outfits/<outfit-name>/runs_preview/<run-id>/
 | `preview_server.py` | 前端本體，Flask app。定義 `GARMENTS`/`MOTIONS`/`GENDERS` 目錄，處理第1節的 6 個路由，以 `subprocess` 依序呼叫下方各腳本組成完整 pipeline |
 | `run_outfit_preview_pipeline.py` | 兩階段 pipeline 協調者，前端 `/generate` 直接呼叫此腳本。依序呼叫下方所有前處理/模擬/算圖腳本，過程中即時寫入 `status.json` 供前端輪詢，最終輸出到 `runs_preview/<run-id>/`（見第7節） |
 | `recover_resize_garment_bootstrap.py` | 通用 checkpoint 路徑的服裝匯入：從 GG 已模擬的服裝軌跡 `.pkl` 切出一幀，還原成 `garment_dict.pkl`，寫入 `recovery_metadata`（`source_trajectory`/`source_frame`） |
-| `pin_garment_waistband.py` | 標記下身服裝腰部邊界頂點，避免後續物理模擬時褲/裙從腰部滑落 |
+| `pin_garment_waistband.py` | 標記下身服裝腰部邊界頂點，避免後續物理模擬時褲/裙從腰部滑落。見 [FIXED_SIZE.md](FIXED_SIZE.md#6-相關檔案) |
+| `inspect_garment_dict.py` | 服裝字典檢查工具，跑模擬前的健檢。見 [FIXED_SIZE.md](FIXED_SIZE.md) 第5節 |
 | `relax_recovered_garment.py` | 用 ContourCraft 模型將剛還原的服裝從初始姿態鬆弛（relax）至接近真實靜止狀態，輸出 `relax_trajectory.pkl` |
 | `combine_garments_untangle.py` | 合併上下身服裝並去除幾何穿插，輸出到 `_staging_garment_dicts/<outfit-name>/`（含每件服裝的 `.pkl` 與 `manifest.json`，見第8節） |
-| `contourcraft_fixed_size_upper.py` | 將已合併的 outfit 依使用者指定的身高體重目標身體重新綁定（rebind），輸出到 `fixedsize_dicts/` |
+| `contourcraft_fixed_size_upper.py` | 將已合併的 outfit 依使用者指定的身高體重目標身體重新綁定（rebind），輸出到 `fixedsize_dicts/`。完整機制見 [FIXED_SIZE.md](FIXED_SIZE.md) |
 | `simulate_recovered_outfit.py` | 讀取重新綁定後的 outfit + 動作序列 `.npz`，執行物理模擬，輸出 `trajectory.pkl`（快速預覽跑少量步數；完整動畫跑 60 步） |
 | `fit_body_from_measurements_fast.py` | 將身高（公尺）、體重（公斤）轉換為 SMPL-X 身體參數，輸出 `betas.pkl` 與附加身體資訊的動作序列 `motion_with_body.npz` |
 | `generate_garment_thumbnail_from_source.py` | 服裝縮圖產生工具（離線，非 `/generate` 流程呼叫）。支援兩種來源：通用 checkpoint 路徑讀 `source_trajectory`；GG 訓練結果路徑讀 `relax_trajectory.pkl`（見程式內註解），輸出到 `catalog_thumbnails/` |
