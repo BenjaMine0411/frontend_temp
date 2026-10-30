@@ -1,0 +1,87 @@
+{
+ "heights": [
+  {
+   "id": "150-160",
+   "label": "150–160 cm",
+   "value": 155
+  },
+  {
+   "id": "160-170",
+   "label": "160–170 cm",
+   "value": 165
+  },
+  {
+   "id": "170-180",
+   "label": "170–180 cm",
+   "value": 175
+  },
+  {
+   "id": "180-190",
+   "label": "180–190 cm",
+   "value": 185
+  }
+ ],
+ "weights": [
+  {
+   "id": "40-50",
+   "label": "40–50 kg",
+   "value": 45
+  },
+  {
+   "id": "50-60",
+   "label": "50–60 kg",
+   "value": 55
+  },
+  {
+   "id": "60-70",
+   "label": "60–70 kg",
+   "value": 65
+  },
+  {
+   "id": "70-80",
+   "label": "70–80 kg",
+   "value": 75
+  },
+  {
+   "id": "80-90",
+   "label": "80–90 kg",
+   "value": 85
+  }
+ ],
+ "garments": {
+  "00170_lower": {
+   "label": "百褶短裙",
+   "slot": "lower",
+   "source_gender": "female"
+  },
+  "00170_upper": {
+   "label": "格紋毛衣背心",
+   "slot": "upper",
+   "source_gender": "female"
+  },
+  "00176_lower": {
+   "label": "牛仔褲",
+   "slot": "lower",
+   "source_gender": "female"
+  },
+  "00176_upper": {
+   "label": "襯衫",
+   "slot": "upper",
+   "source_gender": "female"
+  }
+ },
+ "motions": {
+  "05_08": {
+   "label": "動作一",
+   "file": "CMU/05/05_08_stageii.npz"
+  },
+  "32_01": {
+   "label": "動作二",
+   "file": "CMU/32/32_01_stageii.npz"
+  },
+  "76_10": {
+   "label": "動作三",
+   "file": "CMU/76/76_10_stageii.npz"
+  }
+ }
+}

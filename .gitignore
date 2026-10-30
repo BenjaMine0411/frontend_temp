@@ -1,0 +1,11 @@
+# 執行時產生的資料（不進版控）
+video_library/
+work/
+paths.json
+*.orig
+
+__pycache__/
+*.pyc
+.DS_Store
+# Windows 下載標記檔
+*:Zone.Identifier

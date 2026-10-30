@@ -1,0 +1,9 @@
+{
+  "contourcraft_root": "/你的/ContourCraft",
+  "gaugar_root": "/你的/Gaussian-Garments",
+  "contourcraft_python": "/你的/ContourCraft環境/bin/python",
+  "gaugar_python": "/你的/GaussianGarments環境/bin/python",
+  "data_root": "/你的/data_root",
+  "library_root": "/你的/video_library",
+  "work_root": "/你的/work"
+}

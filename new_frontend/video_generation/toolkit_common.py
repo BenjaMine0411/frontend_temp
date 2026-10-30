@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Shared helpers for the batch video toolkit: paths.json / catalog.json /
+job-file loading, job expansion, and the video-library path + sidecar-file
+conventions. Imported by the other scripts; not run directly.
+
+Library layout (path is a pure function of the job's parameters, so the same
+video always lands at the same path no matter who renders it):
+
+    <library_root>/<outfit>/<gender>/h<height>_w<weight:03d>/<motion>.mp4
+    <library_root>/<outfit>/<gender>/h<height>_w<weight:03d>/<motion>.json   (sidecar)
+"""
+
+import itertools
+import json
+import os
+import socket
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+PATH_KEYS = ["contourcraft_root", "gaugar_root", "contourcraft_python", "gaugar_python",
+             "data_root", "library_root", "work_root"]
+GENDERS = ("male", "female")
+
+# Required files per garment inside the data package (relative to data_root/garments/<name>/).
+GARMENT_FILES = [
+    "stage1/template_uv.obj",
+    "stage1/cameras.json",
+    "stage3/ckpt/net.pt",
+    "stage3/ckpt/info.txt",
+    "cache/garment_dict.pkl",
+    "cache/source_body_fit.pkl",
+]
+
+# Overlay files: (path inside overlay/, repo it installs into).
+OVERLAY_DIRS = {"ContourCraft": "contourcraft_root", "Gaussian-Garments": "gaugar_root"}
+
+TOOLKIT_DIR = Path(__file__).resolve().parent
+
+
+class ToolkitError(Exception):
+    """A problem the user can fix (bad config, missing file, bad job file)."""
+
+
+def fail(msg: str):
+    raise ToolkitError(msg)
+
+
+# --------------------------------------------------------------------------- paths.json
+
+def load_paths(path) -> dict:
+    path = Path(path)
+    if not path.is_file():
+        fail(f"找不到設定檔 {path}。請先 `cp paths.example.json paths.json` 並填入路徑。")
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        fail(f"{path} 不是有效的 JSON：{e}")
+    missing = [k for k in PATH_KEYS if not cfg.get(k)]
+    if missing:
+        fail(f"{path} 缺少欄位：{', '.join(missing)}")
+    out = {}
+    for k in PATH_KEYS:
+        v = str(cfg[k])
+        if "/你的" in v or "/path/to" in v:
+            fail(f"{path} 的 `{k}` 還是範本內容（{v}），請改成你電腦上的實際路徑。")
+        out[k] = Path(v).expanduser()
+    if cfg.get("gaugar_output_root"):
+        out["gaugar_output_root"] = Path(str(cfg["gaugar_output_root"])).expanduser()
+    return out
+
+
+def gaugar_output_root(paths: dict) -> Path:
+    """Where Gaussian-Garments looks for <garment>/stage1 and stage3 (its
+    DEFAULTS.output_root). Optional override: `gaugar_output_root` in paths.json."""
+    if "gaugar_output_root" in paths:
+        return paths["gaugar_output_root"]
+    defaults = paths["gaugar_root"] / "utils" / "defaults.py"
+    if not defaults.is_file():
+        fail(f"找不到 {defaults}；請確認 gaugar_root 指向 Gaussian-Garments 資料夾。")
+    import re
+    m = re.search(r"""DEFAULTS\[['"]output_root['"]\]\s*=\s*['"]([^'"]+)['"]""", defaults.read_text())
+    if not m:
+        fail(f"{defaults} 裡找不到 DEFAULTS['output_root']；可在 paths.json 加入 `gaugar_output_root`。")
+    value = m.group(1)
+    if "/path/to" in value:
+        fail(f"{defaults} 的 output_root 還是官方預設的佔位符（{value}）。請先照官方說明設定，"
+             f"或在 paths.json 加入 `gaugar_output_root`。")
+    p = Path(value).expanduser()
+    # Gaussian-Garments is always run with cwd=gaugar_root, so a relative value resolves there.
+    return p if p.is_absolute() else (paths["gaugar_root"] / p).resolve()
+
+
+# --------------------------------------------------------------------------- catalog.json
+
+def load_catalog(data_root: Path) -> dict:
+    p = Path(data_root) / "catalog.json"
+    if not p.is_file():
+        fail(f"資料包裡找不到 {p}。請確認資料包已完整下載到 data_root。")
+    try:
+        cat = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        fail(f"{p} 不是有效的 JSON：{e}")
+    if not isinstance(cat.get("garments"), dict) or not isinstance(cat.get("motions"), dict):
+        fail(f"{p} 格式不對：需要 `garments` 與 `motions` 兩個物件（見 catalog.example.json）。")
+    return cat
+
+
+def motion_file(paths: dict, catalog: dict, motion_id: str) -> Path:
+    return Path(paths["data_root"]) / "motions" / catalog["motions"][motion_id]["file"]
+
+
+# --------------------------------------------------------------------------- jobs
+
+@dataclass(frozen=True)
+class Job:
+    garments: tuple
+    gender: str
+    height: int
+    weight: int
+    motion: str
+    frames: int
+    fps: int
+
+    @property
+    def outfit(self) -> str:
+        return "+".join(self.garments)
+
+    @property
+    def body_dir(self) -> str:
+        return f"h{self.height}_w{self.weight:03d}"
+
+    @property
+    def key(self) -> str:
+        return f"{self.outfit}/{self.gender}/{self.body_dir}/{self.motion}"
+
+    def video_path(self, library: Path) -> Path:
+        return Path(library) / self.outfit / self.gender / self.body_dir / f"{self.motion}.mp4"
+
+    def sidecar_path(self, library: Path) -> Path:
+        return self.video_path(library).with_suffix(".json")
+
+
+def _as_list(v):
+    return list(v) if isinstance(v, (list, tuple)) else [v]
+
+
+def _positive_int(v, what, where):
+    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+        fail(f"{where}：{what} 必須是正整數，但拿到 {v!r}")
+    return v
+
+
+def expand_jobs(jobs_path) -> list:
+    """Read a job file and expand each entry's heights x weights x motions into Job objects."""
+    jobs_path = Path(jobs_path)
+    if not jobs_path.is_file():
+        fail(f"找不到工作單 {jobs_path}")
+    try:
+        data = json.loads(jobs_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        fail(f"{jobs_path} 不是有效的 JSON：{e}")
+    defaults = data.get("defaults", {})
+    entries = data.get("jobs")
+    if not isinstance(entries, list) or not entries:
+        fail(f"{jobs_path} 需要一個非空的 `jobs` 清單。")
+    jobs = []
+    for i, e in enumerate(entries, 1):
+        where = f"{jobs_path.name} 第 {i} 個工作"
+        for k in ("garments", "gender", "heights", "weights", "motions"):
+            if k not in e:
+                fail(f"{where} 缺少欄位 `{k}`")
+        garments = tuple(_as_list(e["garments"]))
+        if len(garments) < 2 or not all(isinstance(g, str) for g in garments):
+            fail(f"{where}：`garments` 需要至少兩件衣服的名稱（下身在前、上身在後）")
+        if e["gender"] not in GENDERS:
+            fail(f"{where}：`gender` 必須是 male 或 female，但拿到 {e['gender']!r}")
+        frames = e.get("frames", defaults.get("frames"))
+        if frames is None:
+            fail(f"{where}：沒有 frames（請寫在 defaults 或這個工作內）")
+        frames = _positive_int(frames, "frames", where)
+        fps = _positive_int(e.get("fps", defaults.get("fps", 25)), "fps", where)
+        heights = [_positive_int(h, "heights", where) for h in _as_list(e["heights"])]
+        weights = [_positive_int(w, "weights", where) for w in _as_list(e["weights"])]
+        motions = [str(m) for m in _as_list(e["motions"])]
+        for h, w, m in itertools.product(heights, weights, motions):
+            jobs.append(Job(garments, e["gender"], h, w, m, frames, fps))
+    jobs = list(dict.fromkeys(jobs))                      # drop duplicates, keep order
+    jobs.sort(key=lambda j: (j.outfit, j.gender, j.height, j.weight, j.motion))
+    return jobs
+
+
+# ContourCraft simulates at 30 steps/second of motion (its `fps` setting); the CMU files are 120 fps,
+# so every 4th frame is used. The pipeline drops the first DISCARD_FRAMES frames of the trajectory,
+# and the trajectory has steps + 2 frames, so a video of N frames needs N + DISCARD_FRAMES - 2 steps.
+SIM_FPS = 30
+DISCARD_FRAMES = 10
+
+
+def steps_for_frames(frames: int) -> int:
+    return frames + DISCARD_FRAMES - 2
+
+
+def motion_steps_available(paths: dict, motion_path: Path):
+    """How many simulation steps this motion file can drive, or None if it cannot be read."""
+    code = ("import sys, numpy as np; d = np.load(sys.argv[1], allow_pickle=True); "
+            "skip = int(round(float(d['mocap_frame_rate']) / %d)); print(-(-len(d['trans']) // skip))" % SIM_FPS)
+    try:
+        r = subprocess.run([str(paths["contourcraft_python"]), "-c", code, str(motion_path)],
+                           capture_output=True, text=True, timeout=120)
+        return int(r.stdout.strip()) if r.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def motion_length_problems(jobs, paths: dict, catalog: dict) -> list:
+    """A motion that is too short makes the simulation stop early and the video fail AFTER the
+    long simulation has run -- so check it up front."""
+    problems, avail = [], {}
+    for m in sorted({j.motion for j in jobs if j.motion in catalog["motions"]}):
+        f = motion_file(paths, catalog, m)
+        if f.is_file():
+            avail[m] = motion_steps_available(paths, f)
+            if avail[m] is None:
+                problems.append(f"動作 `{m}` 的檔案讀不出來（{f}），請確認它是正常的 .npz 動作檔")
+    for j in jobs:
+        n = avail.get(j.motion)
+        if n is not None and steps_for_frames(j.frames) > n:
+            longest = n - (DISCARD_FRAMES - 2)
+            problems.append(f"動作 `{j.motion}` 只夠模擬 {n} 步（約 {n / SIM_FPS:.1f} 秒的動作），"
+                            f"跑不出 {j.frames} 幀的影片（需要 {steps_for_frames(j.frames)} 步）；這個動作最多可跑 {longest} 幀")
+    return list(dict.fromkeys(problems))
+
+
+def validate_jobs_against_catalog(jobs, paths: dict, catalog: dict) -> list:
+    """Return a list of human-readable problems (empty = fine)."""
+    problems = []
+    for g in sorted({g for j in jobs for g in j.garments}):
+        if g not in catalog["garments"]:
+            problems.append(f"衣服 `{g}` 不在 catalog.json 裡")
+    # Each outfit must be exactly one lower + one upper, lower first (innermost -> outermost),
+    # because the website lets visitors pick one of each.
+    for outfit in sorted({j.garments for j in jobs}):
+        slots = [catalog["garments"].get(g, {}).get("slot") for g in outfit]
+        if all(s is not None for s in slots) and slots != ["lower", "upper"]:
+            problems.append(f"衣服組合 {'+'.join(outfit)} 必須是「一件下身 + 一件上身」（下身在前），"
+                            f"但 catalog.json 裡的 slot 是 {slots}")
+    # If catalog.json defines the height/weight ranges the website offers, videos must be rendered
+    # at exactly those ranges' `value`s (the midpoints), or the website could never select them.
+    for key, attr, unit in (("heights", "height", "cm"), ("weights", "weight", "kg")):
+        if catalog.get(key):
+            allowed = sorted({r["value"] for r in catalog[key]})
+            for v in sorted({getattr(j, attr) for j in jobs} - set(allowed)):
+                problems.append(f"{'身高' if attr == 'height' else '體重'} {v}{unit} 不是 catalog.json 定義的區間中間值"
+                                f"（可用：{', '.join(map(str, allowed))}），網頁選不到這支影片")
+    for m in sorted({j.motion for j in jobs}):
+        if m not in catalog["motions"]:
+            problems.append(f"動作 `{m}` 不在 catalog.json 裡")
+        elif not motion_file(paths, catalog, m).is_file():
+            problems.append(f"動作 `{m}` 的檔案不存在：{motion_file(paths, catalog, m)}")
+    return problems
+
+
+# --------------------------------------------------------------------------- sidecar files
+
+def atomic_write_json(path: Path, obj) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_sidecar(path: Path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def is_done(library: Path, job: Job) -> bool:
+    """A video counts as done only if its mp4 exists and its sidecar says status=done
+    with the same frames/fps the job asks for (a different length is a different video)."""
+    sc = read_sidecar(job.sidecar_path(library))
+    return bool(sc and sc.get("status") == "done" and job.video_path(library).is_file()
+                and sc.get("frames") == job.frames and sc.get("fps") == job.fps)
+
+
+def make_sidecar(job: Job, status: str, **extra) -> dict:
+    d = dict(garments=list(job.garments), gender=job.gender, height=job.height, weight=job.weight,
+             motion=job.motion, frames=job.frames, fps=job.fps,
+             created_at=datetime.now().isoformat(timespec="seconds"),
+             machine=socket.gethostname(), status=status)
+    d.update(extra)
+    return d
+
+
+# --------------------------------------------------------------------------- estimates
+
+# Rough per-unit costs (seconds) for --dry-run only; real speed depends on the GPU.
+SEC_PER_STEP, SEC_PER_FRAME, SEC_OVERHEAD, SEC_UNTANGLE = 5.0, 2.0, 90.0, 180.0
+
+
+def estimate_seconds(job: Job, first_of_outfit: bool, steps: int) -> float:
+    return steps * SEC_PER_STEP + job.frames * SEC_PER_FRAME + SEC_OVERHEAD \
+        + (SEC_UNTANGLE if first_of_outfit else 0.0)
+
+
+def fmt_duration(sec: float) -> str:
+    sec = int(round(sec))
+    h, rem = divmod(sec, 3600)
+    m = rem // 60
+    return f"{h} 小時 {m} 分" if h else f"{m} 分"
+
+
+def print_err(*a):
+    print(*a, file=sys.stderr)

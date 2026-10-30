@@ -1,0 +1,12 @@
+{
+  "defaults": { "frames": 250, "fps": 25 },
+  "jobs": [
+    {
+      "garments": ["Actor08_shorts", "Actor08_shirt"],
+      "gender": "male",
+      "heights": [165, 175],
+      "weights": [55, 65],
+      "motions": ["01_01", "05_01"]
+    }
+  ]
+}
