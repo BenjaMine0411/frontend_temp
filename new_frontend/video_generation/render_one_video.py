@@ -38,6 +38,41 @@ def run_name(job: Job) -> str:
     return f"{job.gender}_{job.body_dir}_{job.motion}_f{job.frames}"
 
 
+STAGE_NAMES = {
+    "recovering_garments": "準備衣服", "untangling": "衣服纏繞修正(untangle)", "fitting_body": "擬合身體",
+    "rebinding": "衣服綁定到身體", "full_simulating": "布料模擬", "full_rendering": "算圖與合成影片",
+}
+
+
+def stage_timings(log: Path) -> dict:
+    """Seconds spent in each pipeline stage, from the `[status] <phase> (t=12.3s)` lines the pipeline
+    prints (t = seconds since the pipeline started). Returns {} if the log has none."""
+    import re
+    marks = []
+    try:
+        for line in Path(log).read_text(errors="replace").splitlines():
+            m = re.match(r"\[status\] (\w+) \(t=([\d.]+)s\)", line)
+            if m:
+                marks.append((m.group(1), float(m.group(2))))
+    except OSError:
+        return {}
+    out = {}
+    for (name, t0), (_, t1) in zip(marks, marks[1:]):
+        if name in STAGE_NAMES:
+            out[name] = round(out.get(name, 0.0) + (t1 - t0), 1)
+    return out
+
+
+def format_timings(stages: dict, steps: int, frames: int) -> str:
+    parts = [f"{STAGE_NAMES[k]} {v:.0f}秒" for k, v in stages.items()]
+    extra = []
+    if stages.get("full_simulating") and steps:
+        extra.append(f"模擬約 {stages['full_simulating'] / steps:.1f} 秒/步")
+    if stages.get("full_rendering") and frames:
+        extra.append(f"算圖約 {stages['full_rendering'] / frames:.1f} 秒/幀")
+    return "；".join(parts) + (("（" + "，".join(extra) + "）") if extra else "")
+
+
 def log_path(paths: dict, job: Job) -> Path:
     return Path(paths["work_root"]) / "logs" / _safe(job.outfit) / f"{run_name(job)}.log"
 
@@ -129,7 +164,8 @@ def render_video(paths: dict, catalog: dict, job: Job, dest_video: Path, dest_si
     tmp = dest_video.with_name(dest_video.name + ".tmp")
     shutil.copyfile(video, tmp)
     tmp.replace(dest_video)
-    sc = make_sidecar(job, "done", elapsed_seconds=round(elapsed))
+    stages = stage_timings(lp)
+    sc = make_sidecar(job, "done", elapsed_seconds=round(elapsed), stage_seconds=stages)
     if dest_sidecar is not None:
         atomic_write_json(dest_sidecar, sc)       # written last: sidecar says "done" only once the mp4 is in place
     if not keep_run_dir:

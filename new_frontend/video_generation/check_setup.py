@@ -19,10 +19,13 @@ import sys
 import time
 from pathlib import Path
 
-from toolkit_common import (GARMENT_FILES, OVERLAY_DIRS, TOOLKIT_DIR, Job, ToolkitError, gaugar_output_root,
+from render_one_video import format_timings, log_path, stage_timings
+from toolkit_common import (GARMENT_FILES, OVERLAY_DIRS, TOOLKIT_DIR, Job, ToolkitError, gaugar_output_root, steps_for_frames,
                             load_catalog, load_paths, motion_file, print_err)
 
 _failures = 0
+REF_SEC_PER_STEP = 5.0     # measured on an RTX 5060 laptop GPU (8 GB)
+SLOW_SEC_PER_STEP = 15.0   # warn when 3x slower than that
 
 
 def ok(msg):
@@ -102,6 +105,10 @@ def check_env(paths, catalog):
     python_check("ContourCraft 環境可以使用 GPU", paths["contourcraft_python"],
                  "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)",
                  "確認 NVIDIA 驅動與 PyTorch 的 CUDA 版本相符")
+    python_check("Warp（布料模擬的碰撞偵測）看得到 GPU", paths["contourcraft_python"],
+                 "import sys, warp as wp; wp.init(); sys.exit(0 if wp.get_cuda_device_count() > 0 else 1)",
+                 "Warp 沒偵測到 GPU 時會默默退回 CPU，模擬會慢非常多（數倍以上）。請確認 warp 的 CUDA 版本與驅動相容，"
+                 "並查看 ContourCraft 跑起來的 log 開頭 `Warp x.x initialized` 底下的 Devices 有沒有列出 cuda:0")
     python_check("Gaussian-Garments 環境（torch、bpy、moviepy）", paths["gaugar_python"],
                  "import torch, bpy; from moviepy import ImageSequenceClip",
                  "確認這個環境已依官方說明安裝 Gaussian-Garments 算圖需要的套件")
@@ -152,6 +159,14 @@ def smoke_test(paths, catalog):
         return
     if out.is_file() and out.stat().st_size > 0:
         ok(f"試跑成功（{time.perf_counter() - t0:.0f} 秒），輸出：{out}")
+        stages = stage_timings(log_path(paths, job))
+        if stages:
+            print("      階段耗時：" + format_timings(stages, steps_for_frames(job.frames), job.frames))
+            per_step = stages.get("full_simulating", 0) / steps_for_frames(job.frames)
+            if per_step > SLOW_SEC_PER_STEP:
+                warn(f"模擬每步約 {per_step:.0f} 秒，比參考值（約 {REF_SEC_PER_STEP:.0f} 秒/步，RTX 5060 筆電）慢很多",
+                     "250 幀的影片會需要好幾個小時。請檢查：GPU 是否真的被使用（nvidia-smi）、Warp 是否看得到 GPU、"
+                     "是否有其他程式佔用 GPU、work_root 是否放在很慢的磁碟（例如 /mnt/c、/mnt/d）")
     else:
         bad("試跑沒有產生影片")
 

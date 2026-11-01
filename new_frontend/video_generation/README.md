@@ -41,6 +41,7 @@ new_frontend/video_generation/
   toolkit_common.py          共用函式（設定檔、工作單展開、資料庫路徑）
   setup_data.py              安裝程式、接上資料
   check_setup.py             自我檢查
+  diagnose_speed.py          影片跑得特別慢時，找出原因
   batch_render.py            批次執行器
   render_one_video.py        單支影片入口
   merge_library.py           合併資料庫
@@ -269,6 +270,7 @@ video_library/
 |---|---|
 | `check_setup.py` 說找不到某件衣服的檔案 | 確認資料包已完整下載到 `data_root`，再重新執行 `setup_data.py` |
 | 執行時出現 CUDA out of memory | 關掉其他使用 GPU 的程式後重跑；已完成的影片不會重做 |
+| 影片跑得比預期慢很多（例如 56 幀超過 30 分鐘） | 執行 `python diagnose_speed.py --config paths.json`（約 30 秒），它會檢查 GPU 是否被降速或被其他程式佔用、**剩餘的顯示記憶體夠不夠**（模擬會用到約 7.9 GB，不夠時 Windows 會悄悄改用系統記憶體，速度慢好幾倍而且不會報錯）、PyTorch 與 Warp 是否真的用到 GPU、磁碟是否太慢，並列出結論。把完整輸出貼給負責人 |
 | 某支影片一直失敗 | 查看 `library_root/failed.log` 與 `work_root/<該影片>/log.txt` |
 | 中途關機或斷線 | 重新執行同一個指令即可繼續 |
 | 說找不到 Python 或套件 | 檢查 `paths.json` 內兩個 `_python` 路徑，確認該環境裝有對應套件 |

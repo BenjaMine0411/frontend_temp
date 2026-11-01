@@ -19,20 +19,22 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from toolkit_common import (ToolkitError, estimate_seconds, expand_jobs, fmt_duration, is_done,
+from toolkit_common import (ToolkitError, calibration, estimate_seconds, expand_jobs, fmt_duration, is_done,
                             load_catalog, load_paths, motion_length_problems, print_err,
                             validate_jobs_against_catalog)
-from render_one_video import RenderFailed, log_path, render_video, steps_for_frames
+from render_one_video import RenderFailed, format_timings, log_path, render_video, steps_for_frames
 
 
-def plan(jobs, library):
+def plan(jobs, library, work_root=None):
     todo = [j for j in jobs if not is_done(library, j)]
+    calib = calibration(library)
     seen_outfits, total = set(), 0.0
     for j in todo:
         first = j.outfit not in seen_outfits
         seen_outfits.add(j.outfit)
-        total += estimate_seconds(j, first, steps_for_frames(j.frames))
-    return todo, total
+        cached = bool(work_root) and (Path(work_root) / "_staging_garment_dicts" / j.outfit).exists()
+        total += estimate_seconds(j, first, steps_for_frames(j.frames), calib, cached)
+    return todo, total, calib
 
 
 def append_failed_log(library: Path, job, error: str):
@@ -66,9 +68,14 @@ def main():
         sys.exit(2)
 
     library = Path(paths["library_root"])
-    todo, total = plan(jobs, library)
+    todo, total, calib = plan(jobs, library, paths["work_root"])
     print(f"工作單共 {len(jobs)} 支影片：已完成 {len(jobs) - len(todo)} 支，待產生 {len(todo)} 支。")
-    print(f"預估還需要 約 {fmt_duration(total)}（粗估，實際依 GPU 而定）。")
+    if calib:
+        print(f"預估還需要 約 {fmt_duration(total)}（依這台電腦已完成影片的實測速度："
+              f"模擬 {calib['step']:.1f} 秒/步、算圖 {calib['frame']:.1f} 秒/幀）。")
+    else:
+        print(f"預估還需要 約 {fmt_duration(total)}（粗估，以 RTX 5060 筆電的速度為準；你的電腦可能差很多，"
+              f"跑完第一支影片後會改用實測速度重新推算）。")
     if args.dry_run:
         return
     if not todo:
@@ -85,6 +92,8 @@ def main():
                 try:
                     sc = render_video(paths, catalog, job, job.video_path(library), job.sidecar_path(library))
                     print(f"  完成，耗時 {sc['elapsed_seconds']} 秒", flush=True)
+                    if sc.get("stage_seconds"):
+                        print("  階段耗時：" + format_timings(sc["stage_seconds"], steps_for_frames(job.frames), job.frames), flush=True)
                     n_done += 1
                     break
                 except RenderFailed as e:

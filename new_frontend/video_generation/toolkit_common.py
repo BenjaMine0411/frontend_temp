@@ -303,9 +303,31 @@ def make_sidecar(job: Job, status: str, **extra) -> dict:
 SEC_PER_STEP, SEC_PER_FRAME, SEC_OVERHEAD, SEC_UNTANGLE = 5.0, 2.0, 90.0, 180.0
 
 
-def estimate_seconds(job: Job, first_of_outfit: bool, steps: int) -> float:
-    return steps * SEC_PER_STEP + job.frames * SEC_PER_FRAME + SEC_OVERHEAD \
-        + (SEC_UNTANGLE if first_of_outfit else 0.0)
+def calibration(library: Path):
+    """Per-stage costs measured on THIS machine from videos already rendered into the library
+    (median over videos that recorded stage_seconds), or None if there are none yet."""
+    xs = []
+    for sc_path in Path(library).rglob("*.json"):
+        sc = read_sidecar(sc_path)
+        if not (sc and sc.get("status") == "done" and sc.get("stage_seconds") and sc.get("frames")):
+            continue
+        st, steps = sc["stage_seconds"], steps_for_frames(sc["frames"])
+        if st.get("full_simulating") and st.get("full_rendering"):
+            xs.append(dict(step=st["full_simulating"] / steps, frame=st["full_rendering"] / sc["frames"],
+                           untangle=st.get("untangling", 0.0), body=st.get("fitting_body", 0.0) + st.get("rebinding", 0.0)))
+    if not xs:
+        return None
+    med = lambda k: sorted(x[k] for x in xs)[len(xs) // 2]
+    return {k: med(k) for k in ("step", "frame", "untangle", "body")}
+
+
+def estimate_seconds(job: Job, first_of_outfit: bool, steps: int, calib=None, untangle_cached=False) -> float:
+    """Rough time for one video. With `calib` (see calibration()) it uses this machine's measured speed;
+    otherwise fixed reference numbers from an RTX 5060 laptop."""
+    need_untangle = first_of_outfit and not untangle_cached
+    if calib:
+        return steps * calib["step"] + job.frames * calib["frame"] + calib["body"] + (calib["untangle"] if need_untangle else 0.0)
+    return steps * SEC_PER_STEP + job.frames * SEC_PER_FRAME + SEC_OVERHEAD + (SEC_UNTANGLE if need_untangle else 0.0)
 
 
 def fmt_duration(sec: float) -> str:
