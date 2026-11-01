@@ -229,6 +229,12 @@ def steps_for_frames(frames: int) -> int:
     return frames + DISCARD_FRAMES - 2
 
 
+def max_frames_for_steps(n_steps: int) -> int:
+    """The trajectory can never be longer than the motion itself (n_steps frames), and the first DISCARD_FRAMES
+    are dropped. (A motion that is only just long enough produced 150 trajectory frames, not 152, in a test.)"""
+    return n_steps - DISCARD_FRAMES
+
+
 def motion_steps_available(paths: dict, motion_path: Path):
     """How many simulation steps this motion file can drive, or None if it cannot be read."""
     code = ("import sys, numpy as np; d = np.load(sys.argv[1], allow_pickle=True); "
@@ -256,9 +262,9 @@ def resolve_auto_frames(jobs, paths: dict, catalog: dict) -> list:
             f = motion_file(paths, catalog, j.motion)
             steps[j.motion] = motion_steps_available(paths, f) if f.is_file() else None
         n = steps[j.motion]
-        if n is None or n - (DISCARD_FRAMES - 2) < 1:
+        if n is None or max_frames_for_steps(n) < 1:
             fail(f"動作 `{j.motion}` 讀不出來或太短，無法決定影片幀數")
-        out.append(Job(j.garments, j.gender, j.height, j.weight, j.motion, n - (DISCARD_FRAMES - 2), j.fps))
+        out.append(Job(j.garments, j.gender, j.height, j.weight, j.motion, max_frames_for_steps(n), j.fps))
     return list(dict.fromkeys(out))
 
 
@@ -274,8 +280,8 @@ def motion_length_problems(jobs, paths: dict, catalog: dict) -> list:
                 problems.append(f"動作 `{m}` 的檔案讀不出來（{f}），請確認它是正常的 .npz 動作檔")
     for j in jobs:
         n = avail.get(j.motion)
-        if n is not None and steps_for_frames(j.frames) > n:
-            longest = n - (DISCARD_FRAMES - 2)
+        if n is not None and j.frames > max_frames_for_steps(n):
+            longest = max_frames_for_steps(n)
             problems.append(f"動作 `{j.motion}` 只夠模擬 {n} 步（約 {n / SIM_FPS:.1f} 秒的動作），"
                             f"跑不出 {j.frames} 幀的影片（需要 {steps_for_frames(j.frames)} 步）；這個動作最多可跑 {longest} 幀")
     return list(dict.fromkeys(problems))
