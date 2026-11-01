@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from toolkit_common import (ToolkitError, calibration, estimate_seconds, expand_jobs, fmt_duration, is_done,
-                            load_catalog, load_paths, motion_length_problems, print_err,
+                            load_catalog, load_paths, motion_length_problems, print_err, resolve_auto_frames,
                             validate_jobs_against_catalog)
 from render_one_video import RenderFailed, format_timings, log_path, render_video, steps_for_frames
 
@@ -54,7 +54,7 @@ def main():
     try:
         paths = load_paths(args.config)
         catalog = load_catalog(paths["data_root"])
-        jobs = expand_jobs(args.jobs)
+        jobs = resolve_auto_frames(expand_jobs(args.jobs), paths, catalog)
         problems = validate_jobs_against_catalog(jobs, paths, catalog)
         if not problems:
             problems = motion_length_problems(jobs, paths, catalog)

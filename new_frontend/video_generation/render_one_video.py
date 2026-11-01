@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from toolkit_common import (DISCARD_FRAMES, Job, ToolkitError, atomic_write_json, ensure_cache_links, load_catalog, load_paths,
-                            make_sidecar, motion_file, print_err, fail, steps_for_frames)
+                            make_sidecar, motion_file, print_err, fail, steps_for_frames, AUTO_FRAMES, resolve_auto_frames)
 
 
 def _safe(s: str) -> str:
@@ -192,7 +192,7 @@ def main():
     ap.add_argument("--height", required=True, type=int, help="cm，整數")
     ap.add_argument("--weight", required=True, type=int, help="kg，整數")
     ap.add_argument("--motion", required=True, help="動作編號，例：01_01")
-    ap.add_argument("--frames", required=True, type=int, help="最後影片的幀數")
+    ap.add_argument("--frames", default="auto", help="最後影片的幀數；不寫（auto）= 跑完整個動作檔")
     ap.add_argument("--fps", type=int, default=25)
     ap.add_argument("--output", type=Path, default=None,
                     help="只輸出到指定的 mp4 路徑（不寫入影片資料庫）。預設寫入 library_root 的標準位置。")
@@ -200,7 +200,8 @@ def main():
     try:
         paths = load_paths(args.config)
         catalog = load_catalog(paths["data_root"])
-        job = Job(tuple(args.garments), args.gender, args.height, args.weight, args.motion, args.frames, args.fps)
+        frames = AUTO_FRAMES if args.frames == "auto" else int(args.frames)
+        job = resolve_auto_frames([Job(tuple(args.garments), args.gender, args.height, args.weight, args.motion, frames, args.fps)], paths, catalog)[0]
         if args.output:
             sc = render_video(paths, catalog, job, args.output)
         else:

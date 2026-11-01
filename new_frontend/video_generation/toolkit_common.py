@@ -139,6 +139,8 @@ def ensure_cache_links(paths: dict, garments) -> list:
 
 # --------------------------------------------------------------------------- jobs
 
+AUTO_FRAMES = 0      # Job.frames == 0 means "run the whole motion"; resolve_auto_frames fills in the number
+
 @dataclass(frozen=True)
 class Job:
     garments: tuple
@@ -202,10 +204,9 @@ def expand_jobs(jobs_path) -> list:
             fail(f"{where}：`garments` 需要至少兩件衣服的名稱（下身在前、上身在後）")
         if e["gender"] not in GENDERS:
             fail(f"{where}：`gender` 必須是 male 或 female，但拿到 {e['gender']!r}")
-        frames = e.get("frames", defaults.get("frames"))
-        if frames is None:
-            fail(f"{where}：沒有 frames（請寫在 defaults 或這個工作內）")
-        frames = _positive_int(frames, "frames", where)
+        frames = e.get("frames", defaults.get("frames", "auto"))
+        # "auto"（或不寫）= 跑完整個動作檔：幀數由動作的長度決定，見 resolve_auto_frames
+        frames = AUTO_FRAMES if frames in ("auto", None) else _positive_int(frames, "frames", where)
         fps = _positive_int(e.get("fps", defaults.get("fps", 25)), "fps", where)
         heights = [_positive_int(h, "heights", where) for h in _as_list(e["heights"])]
         weights = [_positive_int(w, "weights", where) for w in _as_list(e["weights"])]
@@ -238,6 +239,27 @@ def motion_steps_available(paths: dict, motion_path: Path):
         return int(r.stdout.strip()) if r.returncode == 0 else None
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
+
+
+def resolve_auto_frames(jobs, paths: dict, catalog: dict) -> list:
+    """Replace frames=AUTO_FRAMES by what the motion file can drive: the whole motion = (steps - (DISCARD_FRAMES - 2)) frames."""
+    steps = {}
+    out = []
+    for j in jobs:
+        if j.frames != AUTO_FRAMES:
+            out.append(j)
+            continue
+        if j.motion not in catalog["motions"]:
+            out.append(j)                      # unknown motion: the catalog check reports it
+            continue
+        if j.motion not in steps:
+            f = motion_file(paths, catalog, j.motion)
+            steps[j.motion] = motion_steps_available(paths, f) if f.is_file() else None
+        n = steps[j.motion]
+        if n is None or n - (DISCARD_FRAMES - 2) < 1:
+            fail(f"動作 `{j.motion}` 讀不出來或太短，無法決定影片幀數")
+        out.append(Job(j.garments, j.gender, j.height, j.weight, j.motion, n - (DISCARD_FRAMES - 2), j.fps))
+    return list(dict.fromkeys(out))
 
 
 def motion_length_problems(jobs, paths: dict, catalog: dict) -> list:
