@@ -88,7 +88,7 @@ def _pipeline_cmd(paths, catalog, job, run_dir_name, precomputed_betas):
     source_genders = [catalog["garments"][g]["source_gender"] for g in job.garments]
     cmd = [str(paths["contourcraft_python"]), str(script),
            "--garment-names", *job.garments,
-           "--outfit-name", job.outfit,
+           "--outfit-name", job.work_name,
            "--height", f"{job.height / 100:.2f}",
            "--weight", str(job.weight),
            "--gender", job.gender,
@@ -120,7 +120,7 @@ def render_video(paths: dict, catalog: dict, job: Job, dest_video: Path, dest_si
                  "。請確認資料包完整下載到 data_root，然後執行 python setup_data.py --config paths.json")
         raise RenderFailed(error, make_sidecar(job, "failed", error=error))
     rn = run_name(job)
-    run_dir = work / "outfits" / job.outfit / "runs_preview" / rn
+    run_dir = work / "outfits" / job.work_name / "runs_preview" / rn
     if run_dir.exists():                       # leftover from an interrupted attempt: start this video over
         shutil.rmtree(run_dir)
     lp = log_path(paths, job)

@@ -156,6 +156,12 @@ class Job:
         return "+".join(self.garments)
 
     @property
+    def work_name(self) -> str:
+        """Name of this outfit's folders under work_root. Includes the gender: the untangled outfit is built for one
+        gender, so male and female versions of the same outfit must not share a folder."""
+        return f"{self.outfit}__{self.gender}"
+
+    @property
     def body_dir(self) -> str:
         return f"h{self.height}_w{self.weight:03d}"
 

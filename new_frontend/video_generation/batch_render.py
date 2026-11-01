@@ -30,9 +30,9 @@ def plan(jobs, library, work_root=None):
     calib = calibration(library)
     seen_outfits, total = set(), 0.0
     for j in todo:
-        first = j.outfit not in seen_outfits
-        seen_outfits.add(j.outfit)
-        cached = bool(work_root) and (Path(work_root) / "_staging_garment_dicts" / j.outfit).exists()
+        first = j.work_name not in seen_outfits
+        seen_outfits.add(j.work_name)
+        cached = bool(work_root) and (Path(work_root) / "_staging_garment_dicts" / j.work_name).exists()
         total += estimate_seconds(j, first, steps_for_frames(j.frames), calib, cached)
     return todo, total, calib
 
