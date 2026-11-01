@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from toolkit_common import (DISCARD_FRAMES, Job, ToolkitError, atomic_write_json, load_catalog, load_paths,
+from toolkit_common import (DISCARD_FRAMES, Job, ToolkitError, atomic_write_json, ensure_cache_links, load_catalog, load_paths,
                             make_sidecar, motion_file, print_err, fail, steps_for_frames)
 
 
@@ -114,6 +114,11 @@ def render_video(paths: dict, catalog: dict, job: Job, dest_video: Path, dest_si
     """Render `job` and put the mp4 at dest_video (and a sidecar json at dest_sidecar, if given).
     Returns the sidecar dict. Raises ToolkitError on failure (after writing a `failed` sidecar)."""
     work = Path(paths["work_root"])
+    missing = ensure_cache_links(paths, job.garments)      # re-link the garment caches if work_root was cleaned
+    if missing:
+        error = ("資料包裡找不到這些檔案：" + "、".join(missing) +
+                 "。請確認資料包完整下載到 data_root，然後執行 python setup_data.py --config paths.json")
+        raise RenderFailed(error, make_sidecar(job, "failed", error=error))
     rn = run_name(job)
     run_dir = work / "outfits" / job.outfit / "runs_preview" / rn
     if run_dir.exists():                       # leftover from an interrupted attempt: start this video over

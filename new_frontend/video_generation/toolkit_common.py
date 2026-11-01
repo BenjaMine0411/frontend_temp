@@ -112,6 +112,31 @@ def motion_file(paths: dict, catalog: dict, motion_id: str) -> Path:
     return Path(paths["data_root"]) / "motions" / catalog["motions"][motion_id]["file"]
 
 
+# --------------------------------------------------------------------------- garment cache links
+
+def ensure_cache_links(paths: dict, garments) -> list:
+    """The pipeline looks for each garment's processed cache (garment_dict.pkl, source_body_fit.pkl) under
+    <work_root>/<garment>/. setup_data.py links them there from the data package, but if work_root was
+    cleaned the links are gone and the pipeline would fall back to a slow, confusing 'recover' path.
+    Re-create any missing link from the data package. Returns the files that could not be found anywhere."""
+    work, data = Path(paths["work_root"]), Path(paths["data_root"]) / "garments"
+    missing = []
+    for g in garments:
+        for name in ("garment_dict.pkl", "source_body_fit.pkl"):
+            dst = work / g / name
+            if dst.exists():
+                continue
+            src = data / g / "cache" / name
+            if src.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.is_symlink():
+                    dst.unlink()
+                dst.symlink_to(src.resolve())
+            else:
+                missing.append(f"{g}/cache/{name}")
+    return missing
+
+
 # --------------------------------------------------------------------------- jobs
 
 @dataclass(frozen=True)
