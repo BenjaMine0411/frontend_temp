@@ -60,11 +60,13 @@ new_frontend/video_generation/
 ### 1. 取得這個 branch
 
 ```bash
-git clone -b batch-video-library <repo 網址>
-cd <repo>/new_frontend/video_generation
+git clone -b new-frontend https://github.com/Realfit3D/frontend_temp.git
+cd frontend_temp/new_frontend/video_generation
 ```
 
-已經有這個 repo 的人用 `git fetch origin && git checkout batch-video-library && git pull`。
+分支名稱是 **`new-frontend`**（不是 `main`）。這個分支只有 `new_frontend/` 這個資料夾，和 `main` 的內容完全不同，所以**請直接 clone 到新的資料夾**，不要在舊的 repo 裡切換分支。
+
+之後如果作者有更新，在 `frontend_temp` 資料夾裡執行 `git pull`，再執行一次 `python setup_data.py --config paths.json` 把新程式放進你的官方資料夾。確認版本：`git log -1 --format=%h` 會顯示最新的版本編號。
 
 ### 2. 下載資料包
 
@@ -127,11 +129,11 @@ python setup_data.py --config paths.json
 python check_setup.py --config paths.json
 ```
 
-依序檢查三項，任何一項失敗都會說明缺什麼以及怎麼補：
+依序檢查三項，任何一項失敗都會說明缺什麼以及怎麼補（缺縮圖只會提醒，不影響跑影片）：
 
 1. 資料：資料包內每件衣服的必要檔案、動作檔、官方模型是否都在。
-2. 環境與程式：兩個 Python 環境、GPU、overlay 的程式是否已安裝到正確位置。
-3. 試跑：用 20 幀產生一支測試影片，確認整條路線通。測試影片放在 `work_root/smoke_test/`。
+2. 環境與程式：兩個 Python 環境、GPU、Warp 是否真的看得到 GPU、overlay 的程式是否已安裝到正確位置。
+3. 試跑：用 20 幀產生一支測試影片，確認整條路線通，並列出各階段耗時；如果布料模擬比參考值（約 5 秒/步）慢 3 倍以上會提醒。測試影片放在 `work_root/smoke_test/`。
 
 全部通過後再往下。
 
@@ -180,7 +182,7 @@ cp jobs.example.json my_jobs.json
 python batch_render.py my_jobs.json --config paths.json --dry-run
 ```
 
-列出總共有幾支影片、已經完成幾支、預估還要多久，不會真的執行。
+列出總共有幾支影片、已經完成幾支、預估還要多久，不會真的執行。**預估時間是「全部待產生影片加起來的總和」**，不是單支影片的時間。第一次執行時用的是作者電腦的參考速度，你的電腦可能差很多；跑完第一支影片後，會改用你這台電腦實際量到的速度重新推算。每支影片跑完會印出各階段（untangle、擬合身體、布料模擬、算圖）花了多久。
 
 ### 8. 開跑
 
@@ -263,6 +265,22 @@ video_library/
 **`merge_library.py`** 與 **`build_index.py`** 如上節所述。
 
 **`catalog.json`**（在資料包內，格式見 `catalog.example.json`）記錄：身高與體重的區間（`id`、顯示名稱 `label`、跑影片用的中間值 `value`）、所有衣服（顯示名稱、`slot` 為 `upper` 或 `lower`、處理時使用的性別）、動作（編號、動作檔路徑、顯示名稱）。網頁也讀同一份檔案來顯示名稱與區間。
+
+## 影片跑得比預期慢很多時
+
+作者的電腦（RTX 5060 筆電）上，一支 250 幀的影片第一次約 30 分鐘（包含每套衣服只做一次的 untangle，約 4~5 分鐘），同一套衣服之後的影片約 25 分鐘。如果你的電腦差很多（例如單支要好幾個小時），請照下面做：
+
+1. 確認拿到的是最新的程式：`git pull`，再執行一次 `python setup_data.py --config paths.json`。
+2. 執行診斷（約 1 分鐘）：
+
+   ```bash
+   python diagnose_speed.py --config paths.json
+   ```
+
+   它會檢查：你的程式檔是否和 GitHub 上的版本一致（有沒有漏拿新程式）、GPU 有沒有被降速或被其他程式佔用、顯示記憶體夠不夠、PyTorch 與 Warp 有沒有真的用到 GPU、磁碟速度、會拖慢速度的環境變數，並把最近一次影片各階段的耗時和參考值並排列出，慢在哪個階段一眼就看得出來。報告最後有一段「結論」，用白話說明哪裡有問題。
+3. 把整份報告（也存在 `diagnose_report.txt`）貼給負責人。如果結論說程式檔不一致，照第 1 步更新即可。
+
+常見的原因：筆電沒接電源或在省電模式、GPU 被瀏覽器或其他程式佔用、顯示記憶體不夠、Warp 沒有用到 GPU（會退回 CPU，不會報錯但慢好幾倍）、`work_root` 放在 Windows 磁碟（`/mnt/c` 之類）。
 
 ## 常見問題
 
