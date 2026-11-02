@@ -70,11 +70,18 @@ cd frontend_temp/new_frontend/video_generation
 
 ### 2. 下載資料包
 
-資料包放在 Hugging Face：`<HF_REPO_URL>`。
+資料包放在 Hugging Face 的私人儲存庫：`https://huggingface.co/datasets/Realfit3D/tryon-garment-package`。只有組織 `Realfit3D` 的成員看得到，所以要先做下面的「第一次使用」。
+
+**第一次使用（每個人做一次）：**
+
+1. 註冊 Hugging Face 帳號，並接受組織 `Realfit3D` 的邀請。
+2. 安裝指令：`pip install -U huggingface_hub`（裝好後有 `hf` 指令）。
+3. 登入：`hf auth login`。它會印出網址和代碼，用瀏覽器打開、輸入代碼授權。想確認登入的是誰：`hf auth whoami`。
+
+**下載資料包（約 2.2 GB，中斷了再執行同一行會接著下載）：**
 
 ```bash
-pip install huggingface_hub
-huggingface-cli download <HF_REPO_ID> --repo-type dataset --local-dir /你的/data_root
+hf download Realfit3D/tryon-garment-package --repo-type dataset --local-dir /你的/data_root
 ```
 
 資料包的結構：
@@ -204,14 +211,35 @@ python batch_render.py my_jobs.json --config paths.json
 
 ### 11. 回傳結果
 
-跑完後把 `library_root` 資料夾壓縮傳給負責合併的人。
+跑完後把影片上傳到 Hugging Face 的影片儲存庫 `Realfit3D/tryon-video-library`（私人，需要已登入且是組織成員、角色為 write）。先進到 `paths.json` 裡 `library_root` 那個資料夾，再執行：
+
+```bash
+cd /你的/library_root
+hf upload Realfit3D/tryon-video-library . . --repo-type dataset \
+  --include "*.mp4" --include "*.json" \
+  --exclude "manifest.json" --exclude "catalog.json" --exclude "failed.log" \
+  --commit-message "batch_01 by 你的名字"
+```
+
+- 只傳影片（`.mp4`）和說明檔（`.json`）。`manifest.json`、`catalog.json`、`failed.log` 是各自電腦的索引或紀錄，不要傳，會互相覆蓋。
+- 資料夾結構會原樣保留，不要改名、不要搬動；不同批次的影片路徑不同，不會互相覆蓋。
+- 建議等一批完全跑完再上傳。中斷了再執行同一行即可。
+- 也可以用網頁：儲存庫頁面 → Files and versions → Contribute → Upload files，把資料夾拖進去（一次可上傳的檔案數量有上限，檔案多時用指令比較穩）。
 
 另外，用 `--skip-smoke` 可以讓 `check_setup.py` 略過 20 幀試跑，只做前兩項檢查（資料、環境與程式）。
 
 ## 合併（只有負責合併的人需要做）
 
+先把影片儲存庫整個下載下來：
+
 ```bash
-python merge_library.py /別人傳來的/video_library --config paths.json
+hf download Realfit3D/tryon-video-library --repo-type dataset --local-dir ~/all_videos
+```
+
+再合併並產生索引：
+
+```bash
+python merge_library.py ~/all_videos --config paths.json
 python build_index.py --config paths.json
 ```
 
