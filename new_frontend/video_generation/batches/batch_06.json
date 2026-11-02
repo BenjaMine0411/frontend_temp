@@ -1,0 +1,43 @@
+{
+ "defaults": {
+  "fps": 25
+ },
+ "jobs": [
+  {
+   "garments": [
+    "Actor07_lower",
+    "Actor07_upper"
+   ],
+   "gender": "female",
+   "heights": [
+    155
+   ],
+   "weights": [
+    45
+   ],
+   "motions": [
+    "137_26_t05",
+    "35_01",
+    "80_26_t02"
+   ]
+  },
+  {
+   "garments": [
+    "Actor07_lower",
+    "Actor07_upper"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    55
+   ],
+   "motions": [
+    "137_26_t05",
+    "35_01",
+    "80_26_t02"
+   ]
+  }
+ ]
+}

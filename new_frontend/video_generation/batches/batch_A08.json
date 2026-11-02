@@ -1,0 +1,263 @@
+{
+ "defaults": {
+  "fps": 25
+ },
+ "jobs": [
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    165
+   ],
+   "weights": [
+    65
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    185
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    185
+   ],
+   "weights": [
+    85
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    155
+   ],
+   "weights": [
+    45
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    55
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    65
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor08_shorts",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    165
+   ],
+   "weights": [
+    65
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    185
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "male",
+   "heights": [
+    185
+   ],
+   "weights": [
+    85
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    155
+   ],
+   "weights": [
+    45
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    55
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    65
+   ],
+   "motions": [
+    "35_01"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor08_shirt"
+   ],
+   "gender": "female",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "35_01"
+   ]
+  }
+ ]
+}

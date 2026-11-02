@@ -1,0 +1,43 @@
+{
+ "defaults": {
+  "fps": 25
+ },
+ "jobs": [
+  {
+   "garments": [
+    "Actor05",
+    "Actor05_upper_stage3_clean"
+   ],
+   "gender": "male",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05",
+    "35_01",
+    "80_26_t02"
+   ]
+  },
+  {
+   "garments": [
+    "Actor05",
+    "Actor05_upper_stage3_clean"
+   ],
+   "gender": "male",
+   "heights": [
+    185
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05",
+    "35_01",
+    "80_26_t02"
+   ]
+  }
+ ]
+}

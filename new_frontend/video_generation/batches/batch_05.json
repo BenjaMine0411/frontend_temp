@@ -1,0 +1,58 @@
+{
+ "defaults": {
+  "fps": 25
+ },
+ "jobs": [
+  {
+   "garments": [
+    "Actor07_lower",
+    "Actor05_upper_stage3_clean"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    55
+   ],
+   "motions": [
+    "137_26_t05",
+    "80_26_t02"
+   ]
+  },
+  {
+   "garments": [
+    "Actor07_lower",
+    "Actor05_upper_stage3_clean"
+   ],
+   "gender": "female",
+   "heights": [
+    165
+   ],
+   "weights": [
+    65
+   ],
+   "motions": [
+    "137_26_t05",
+    "80_26_t02"
+   ]
+  },
+  {
+   "garments": [
+    "Actor07_lower",
+    "Actor05_upper_stage3_clean"
+   ],
+   "gender": "female",
+   "heights": [
+    175
+   ],
+   "weights": [
+    75
+   ],
+   "motions": [
+    "137_26_t05",
+    "80_26_t02"
+   ]
+  }
+ ]
+}
