@@ -274,6 +274,9 @@ class Doll(MeshGaussianModel):
             _tmp = Path(DEFAULTS.output_root) / garment_name
             gaussian = AvatarSimulationModel(_tmp, texture_size=args.texture_size)
             self.garments.append(gaussian)
+            # V3 was trained with the rest-pose Gaussian coordinates. Keep a
+            # frozen copy because get_xyz changes with the simulated mesh.
+            gaussian.v3_canonical_xyz = gaussian.get_xyz.detach().clone()
             avatar = AvatarNet(args, gaussian).to('cuda')
 
             stage3_path = _tmp / DEFAULTS.stage3
@@ -370,7 +373,7 @@ class Doll(MeshGaussianModel):
                 checkpoint = self.opacity_controller_checkpoints[index]
                 center = checkpoint["canonical_center"].to(base_opacity)
                 scale = checkpoint["canonical_scale"].to(base_opacity)
-                canonical_xyz = (garment.get_xyz - center) / scale
+                canonical_xyz = (garment.v3_canonical_xyz - center) / scale
                 controlled_opacity = self.opacity_controllers[index](
                     base_opacity, canonical_xyz, self.opacity_scale
                 )[0]
